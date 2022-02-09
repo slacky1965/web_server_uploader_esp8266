@@ -27,9 +27,9 @@ This example uses a modified `esp_http_server` component to implement the match 
 * In order to test the file server demo
 	1. run `make monitor` and note down the IP assigned to your ESP module. The default port is 80
 	2. test the example interactively on a web browser (assuming IP is 192.168.100.40):
-	- open path `http://192.168.100.40` or `http://192.168.100.40/index.html` to see an HTML web page with upload menu
-       	- use the file upload form on the webpage to select and upload a file to the server
-	- uploading a firmware file or html files (\*.html, \*.css, \*.js or other)
+		- open path `http://192.168.100.40` or `http://192.168.100.40/index.html` to see an HTML web page with upload menu
+		- use the file upload form on the webpage to select and upload a file to the server
+		- uploading a firmware file or html files (\*.html, \*.css, \*.js or other)
 
 * `make cleanall` - default clean and clean `mkspiffs`
 
