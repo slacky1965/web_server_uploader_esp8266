@@ -18,8 +18,8 @@ This example uses a modified `esp_http_server` component to implement the match 
 
 * Go to `Serial flasher config` and set `Default serial port`
 * Go to `Example Connection Configuration`
-		1. WIFI SSID: WIFI network to which your PC is also connected to.
-		2. WIFI Password: WIFI password
+	1. WIFI SSID: WIFI network to which your PC is also connected to.
+	2. WIFI Password: WIFI password
 	
 * `make all` for compiling applications
 * `make flash` to download the app
