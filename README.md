@@ -8,6 +8,8 @@ This example uses a modified `esp_http_server` component to implement the match 
 
 `/index.html`, `/favicon.ico`, `/style.css` and `scripts.js` can be overridden by uploading files with same names.
 
+Tested on Windows 10 and Linux Debian
+
 ## Usage
 
 * Get `toolchain` and `ESP8266_RTOS_SDK` from `espressif` web site - https://docs.espressif.com/projects/esp8266-rtos-sdk/en/latest/get-started/index.html
