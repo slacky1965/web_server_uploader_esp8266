@@ -264,7 +264,7 @@ static esp_err_t webserver_upload_html(httpd_req_t *req, const char *full_name) 
     return ESP_OK;
 }
 
-static esp_err_t webserver_update(httpd_req_t *req, const char *full_name) {
+static esp_err_t webserver_update(httpd_req_t *req) {
 
     const esp_partition_t *partition;
     esp_ota_handle_t ota_handle;
@@ -312,10 +312,9 @@ static esp_err_t webserver_update(httpd_req_t *req, const char *full_name) {
                             httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, err);
                             return ESP_FAIL;
                         }
-                        char *filename = strrchr(req->uri, DELIM_CHR);
-                        if (filename) {
-                            printf("Uploading image file \"%s\"\n", filename+1);
-                        }
+                        name = strrchr(req->uri, DELIM_CHR);
+                        if (name) name++;
+                        printf("Uploading image file \"%s\"\n", name?name:req->uri);
 //                        printf("Image project name \"%s\"\n", app_desc->project_name);
 //                        printf("Compiled %s %s\n", app_desc->time, app_desc->date);
 //                        printf("IDF version %s\n", app_desc->idf_ver);
@@ -386,11 +385,11 @@ static esp_err_t webserver_update(httpd_req_t *req, const char *full_name) {
                 return ESP_FAIL;
             }
 
-            name = strrchr (full_name, DELIM_CHR);
+            name = strrchr (req->uri, DELIM_CHR);
 
             if (name) name++;
 
-            sprintf(buf, "File `%s` %d bytes uploaded successfully.\nNext boot partition is %s.\nRestart system...", name?name:full_name, global_recv_len, partition->label);
+            sprintf(buf, "File `%s` %d bytes uploaded successfully.\nNext boot partition is %s.\nRestart system...", name?name:req->uri, global_recv_len, partition->label);
             httpd_resp_send(req, buf, strlen(buf));
 
             xTaskCreate(&reboot_task, "reboot_task", 2048, NULL, 0, NULL);
@@ -479,7 +478,7 @@ static esp_err_t webserver_upload(httpd_req_t *req) {
             return ESP_FAIL;
         }
 
-        return webserver_update(req, full_path);
+        return webserver_update(req);
 
     } else {
         err = "Invalid path";
