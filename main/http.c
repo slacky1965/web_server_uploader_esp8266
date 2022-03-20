@@ -33,6 +33,7 @@
 #define INDEX       "/index.html"
 #define UPLOAD      "/upload/*"
 #define LIST        "/list"
+#define DELETE      "/delete"
 
 static char *TAG = "web_server_http";
 
@@ -41,6 +42,7 @@ static char *webserver_html_path = NULL;
 static esp_err_t webserver_response(httpd_req_t *req);
 static esp_err_t webserver_upload(httpd_req_t *req);
 static esp_err_t webserver_list(httpd_req_t *req);
+static esp_err_t webserver_delete(httpd_req_t *req);
 
 static const httpd_uri_t uri_html = {
         .uri = URL,
@@ -56,6 +58,11 @@ static const httpd_uri_t list_html = {
         .uri = LIST,
         .method = HTTP_POST,
         .handler = webserver_list };
+
+static const httpd_uri_t delete_html = {
+        .uri = DELETE,
+        .method = HTTP_POST,
+        .handler = webserver_delete };
 
 static void reboot_task(void *pvParameter) {
 
@@ -492,17 +499,92 @@ static esp_err_t webserver_upload(httpd_req_t *req) {
     return ESP_OK;
 }
 
+static esp_err_t webserver_delete(httpd_req_t *req) {
+
+    char buff[MAX_BUFF_RW] = {0};
+    char *err = "Unknown error";
+    int received;
+    const char *key = "Files";
+
+
+    if (!get_status_spiffs()) {
+        err = "Spiffs not mount";
+        ESP_LOGE(TAG, "%s. (%s:%u)", err, __FILE__, __LINE__);
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, err);
+        return ESP_FAIL;
+    }
+
+    if (req->content_len > MAX_BUFF_RW) {
+        err = "Data too large";
+        ESP_LOGE(TAG, "%s. (%s:%u)", err, __FILE__, __LINE__);
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, err);
+        return ESP_FAIL;
+    }
+
+    do {
+        /* Receive the data part by part into a buffer */
+        if ((received = httpd_req_recv(req, buff, MIN(req->content_len, MAX_BUFF_RW))) <= 0) {
+            if (received == HTTPD_SOCK_ERR_TIMEOUT) {
+                /* Retry if timeout occurred */
+                continue;
+            }
+
+            err = "Data reception failed";
+            ESP_LOGE(TAG, "%s. (%s:%u)", err, __FILE__, __LINE__);
+            /* Respond with 500 Internal Server Error */
+            httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, err);
+            return ESP_FAIL;
+        }
+        break;
+    } while(1);
+
+    cJSON *root = cJSON_Parse(buff);
+    if (root == NULL) {
+        err = "JSON not found";
+        ESP_LOGE(TAG, "%s. (%s:%u)", err, __FILE__, __LINE__);
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, err);
+        return ESP_FAIL;
+    }
+
+    cJSON *files_array = cJSON_GetObjectItem(root, key);
+
+    if (files_array == NULL) {
+        cJSON_Delete(root);
+        err = "Array key not found";
+        ESP_LOGE(TAG, "%s. (%s:%u)", err, __FILE__, __LINE__);
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, err);
+        return ESP_FAIL;
+    }
+
+    int files_array_size = cJSON_GetArraySize(files_array);
+    for (int i = 0; i < files_array_size; i++) {
+        cJSON *file = cJSON_GetArrayItem(files_array, i);
+        sprintf(buff, "%s%s%s", HTML_PATH, DELIM, file->valuestring);
+        if (unlink(buff) != 0) {
+            cJSON_Delete(root);
+            err = "File to delete fail";
+            ESP_LOGE(TAG, "%s (%s). (%s:%u)", err, buff, __FILE__, __LINE__);
+            httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, err);
+            return ESP_FAIL;
+        }
+        ESP_LOGI(TAG, "Deleting a file: %s", file->valuestring);
+    }
+
+    cJSON_Delete(root);
+    httpd_resp_sendstr(req, "Delete files successful");
+    return ESP_OK;
+}
+
 static esp_err_t webserver_list(httpd_req_t *req) {
 
     DIR *dir;
     struct dirent *de;
     char *err = NULL;
-    char buff[512];
-    char spaces[16];
+    char buff[1024];
 
     FILE *fp;
     struct stat file_stat;
-    size_t len, total_len;
+    size_t total_len, count_files;
     dir = opendir(webserver_html_path);
 
     if (!dir) {
@@ -515,7 +597,7 @@ static esp_err_t webserver_list(httpd_req_t *req) {
     sprintf(buff, "Directory: %s\n\n", webserver_html_path);
     httpd_resp_sendstr_chunk(req, buff);
 
-    total_len = 0;
+    total_len = count_files = 0;
 
     while ((de = readdir(dir))) {
         sprintf(buff, "%s%s%s", webserver_html_path, DELIM, de->d_name);
@@ -523,20 +605,18 @@ static esp_err_t webserver_list(httpd_req_t *req) {
         if (fp == NULL) {
             err = "Cannot open file";
             ESP_LOGE(TAG, "%s %s. (%s:%u)", err, de->d_name, __FILE__, __LINE__);
-            sprintf(buff, "%s\n", de->d_name);
+            sprintf(buff, "<input type=\"checkbox\" name=\"file%u\" value=\"%s\">                %s\n",
+            													count_files++, de->d_name, de->d_name);
         } else {
             if (fstat(fileno(fp), &file_stat) == 0) {
-                sprintf(buff, "%ld", file_stat.st_size);
-                len = 7-strlen(buff);
-                memset(spaces, ' ', len);
-                spaces[len] = 0;
-                sprintf(buff, "  %s%ld    %s\n", spaces, file_stat.st_size, de->d_name);
+                sprintf(buff, "<input type=\"checkbox\" name=\"file%u\" value=\"%s\"> %11lu    %s\n",
+                                            count_files++, de->d_name, file_stat.st_size, de->d_name);
                 total_len += file_stat.st_size;
             }
+            fclose(fp);
         }
 
         httpd_resp_sendstr_chunk(req, buff);
-        fclose(fp);
     }
 
     closedir(dir);
@@ -570,6 +650,8 @@ static httpd_handle_t webserver_start(void) {
         if (ret != ESP_OK) ESP_LOGE(TAG, "URL \"%s\" not registered. (%s:%u)", upload_html.uri, __FILE__, __LINE__);
         ret = httpd_register_uri_handler(server, &list_html);
         if (ret != ESP_OK) ESP_LOGE(TAG, "URL \"%s\" not registered. (%s:%u)", list_html.uri, __FILE__, __LINE__);
+        ret = httpd_register_uri_handler(server, &delete_html);
+        if (ret != ESP_OK) ESP_LOGE(TAG, "URL \"%s\" not registered. (%s:%u)", delete_html.uri, __FILE__, __LINE__);
         ret = httpd_register_uri_handler(server, &uri_html);
         if (ret != ESP_OK) ESP_LOGE(TAG, "URL \"%s\" not registered. (%s:%u)", uri_html.uri, __FILE__, __LINE__);
         return server;
